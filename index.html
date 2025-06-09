@@ -24,51 +24,62 @@
   <div class="output" id="result"></div>
 
   <script>
-    // Fake DTE using uniform distribution over 10^16 CC numbers
-    function dteEncode(card) {
-      return Math.floor(Math.random() * 1e16);
-    }
-
-    function dteDecode(seed) {
-      return String(seed).padStart(16, '4'); // Return a valid-looking 16-digit number
-    }
-
     function hashPassword(password) {
       const encoder = new TextEncoder();
       const data = encoder.encode(password);
       return crypto.subtle.digest('SHA-256', data);
     }
 
-    async function xorData(seed, password) {
-      const seedStr = seed.toString().padEnd(32, '0');
-      const key = await hashPassword(password);
-      const seedBytes = new TextEncoder().encode(seedStr);
-      const keyBytes = new Uint8Array(key);
-      const result = seedBytes.map((b, i) => b ^ keyBytes[i % keyBytes.length]);
-      return result;
-    }
-
     async function encryptCard() {
       const cc = document.getElementById('cc').value;
       const pw = document.getElementById('pw').value;
-      const seed = dteEncode(cc);
-      const cipher = await xorData(seed, pw);
+      const prefix = cc.slice(0, 3);
+      const suffix = cc.slice(3);
+
+      const key = await hashPassword(pw);
+      const seedBytes = new TextEncoder().encode(suffix.padEnd(32, '0'));
+      const keyBytes = new Uint8Array(key);
+      const cipher = seedBytes.map((b, i) => b ^ keyBytes[i % keyBytes.length]);
+
       localStorage.setItem('cipher', JSON.stringify(Array.from(cipher)));
+      localStorage.setItem('prefix', prefix);
+      localStorage.setItem('original', suffix);
       document.getElementById('result').innerText = 'Encrypted and stored locally.';
+    }
+
+    function generateFakeDigits(original, password) {
+      const pwNum = password.split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+      return original.split('').map(d => {
+        const div = Math.floor(pwNum / (parseInt(d) || 1)) % 10;
+        return div.toString();
+      }).join('').slice(0, 13);
     }
 
     async function decryptCard() {
       const pw = document.getElementById('pw').value;
-      const cipher = JSON.parse(localStorage.getItem('cipher'));
-      if (!cipher) {
+      const storedCipher = localStorage.getItem('cipher');
+      const prefix = localStorage.getItem('prefix') || '400';
+      const original = localStorage.getItem('original') || '';
+
+      if (!storedCipher) {
         document.getElementById('result').innerText = 'No ciphertext found.';
         return;
       }
+
+      const cipher = new Uint8Array(JSON.parse(storedCipher));
       const key = new Uint8Array(await hashPassword(pw));
-      const plain = cipher.map((b, i) => b ^ key[i % key.length]);
-      const seedStr = new TextDecoder().decode(new Uint8Array(plain)).replace(/[^0-9]/g, '');
-      const fakeCard = dteDecode(Number(seedStr));
-      document.getElementById('result').innerText = 'Decrypted CC Number: ' + fakeCard;
+      const decrypted = cipher.map((b, i) => b ^ key[i % key.length]);
+      const seedStr = new TextDecoder().decode(new Uint8Array(decrypted)).replace(/[^0-9]/g, '').slice(0, 13);
+
+      let result;
+      if (seedStr === original) {
+        result = prefix + original;
+      } else {
+        const fakeSuffix = generateFakeDigits(original, pw);
+        result = prefix + fakeSuffix;
+      }
+
+      document.getElementById('result').innerText = 'Decrypted CC Number: ' + result;
     }
   </script>
 </body>
