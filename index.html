@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Honey Encryption Demo - Credit Card</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    input, button { padding: 10px; margin: 10px 0; width: 100%; }
+    .output { font-weight: bold; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h2>Honey Encryption Demo – Credit Card Number</h2>
+
+  <label>Credit Card Number (16 digits)</label>
+  <input id="cc" type="text" maxlength="16" placeholder="e.g., 4532015112830366">
+
+  <label>Password</label>
+  <input id="pw" type="password" placeholder="Enter password">
+
+  <button onclick="encryptCard()">Encrypt</button>
+  <button onclick="decryptCard()">Decrypt</button>
+
+  <div class="output" id="result"></div>
+
+  <script>
+    // Fake DTE using uniform distribution over 10^16 CC numbers
+    function dteEncode(card) {
+      return Math.floor(Math.random() * 1e16);
+    }
+
+    function dteDecode(seed) {
+      return String(seed).padStart(16, '4'); // Return a valid-looking 16-digit number
+    }
+
+    function hashPassword(password) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      return crypto.subtle.digest('SHA-256', data);
+    }
+
+    async function xorData(seed, password) {
+      const seedStr = seed.toString().padEnd(32, '0');
+      const key = await hashPassword(password);
+      const seedBytes = new TextEncoder().encode(seedStr);
+      const keyBytes = new Uint8Array(key);
+      const result = seedBytes.map((b, i) => b ^ keyBytes[i % keyBytes.length]);
+      return result;
+    }
+
+    async function encryptCard() {
+      const cc = document.getElementById('cc').value;
+      const pw = document.getElementById('pw').value;
+      const seed = dteEncode(cc);
+      const cipher = await xorData(seed, pw);
+      localStorage.setItem('cipher', JSON.stringify(Array.from(cipher)));
+      document.getElementById('result').innerText = 'Encrypted and stored locally.';
+    }
+
+    async function decryptCard() {
+      const pw = document.getElementById('pw').value;
+      const cipher = JSON.parse(localStorage.getItem('cipher'));
+      if (!cipher) {
+        document.getElementById('result').innerText = 'No ciphertext found.';
+        return;
+      }
+      const key = new Uint8Array(await hashPassword(pw));
+      const plain = cipher.map((b, i) => b ^ key[i % key.length]);
+      const seedStr = new TextDecoder().decode(new Uint8Array(plain)).replace(/[^0-9]/g, '');
+      const fakeCard = dteDecode(Number(seedStr));
+      document.getElementById('result').innerText = 'Decrypted CC Number: ' + fakeCard;
+    }
+  </script>
+</body>
+</html>
